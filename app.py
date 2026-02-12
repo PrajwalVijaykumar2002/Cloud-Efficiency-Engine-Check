@@ -9,7 +9,15 @@ import sqlalchemy
 
 # --- 1. CONFIGURATION ---
 # Ensure your keys.json is in the same folder as this script
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "keys.json"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+key_path = os.path.join(current_dir, "keys.json")
+
+if not os.path.exists(key_path):
+    st.error(f"❌ Critical Error: '{key_path}' not found! "
+             "Please make sure you have your service account key in the project folder.")
+    st.stop() # Stops the app from crashing with a messy error
+
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
 
 # --- 2. CLOUD SQL SETUP ---
 # Replace these with your actual credentials
