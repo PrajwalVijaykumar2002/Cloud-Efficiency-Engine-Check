@@ -34,7 +34,6 @@ jobs:
       # 5. Build and Push the Docker image
       - name: Build and Push Container
         run: |
-          # The "." at the end is CRITICAL - it represents the build context
           docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/streamlit-benchmark:latest .
           docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/streamlit-benchmark:latest
 
