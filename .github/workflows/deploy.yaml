@@ -34,7 +34,7 @@ jobs:
       # 5. Build and Push (Simplified)
       - name: Build and Push
         run: |
-          docker build -t gcr.io/cloud-storage-vs-sql-groupc/streamlit-benchmark:latest .
+          run: docker build -t gcr.io/cloud-storage-vs-sql-groupc/streamlit-benchmark:latest .
           docker push gcr.io/cloud-storage-vs-sql-groupc/streamlit-benchmark:latest
 
       # 6. Deploy to Google Cloud Run
