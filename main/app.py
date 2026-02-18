@@ -27,9 +27,11 @@ connector = Connector()
 def getconn():
     return connector.connect(INSTANCE_CONNECTION, "pymysql", user=DB_USER, password=DB_PASS, db=DB_NAME)
 
-pool = sqlalchemy.create_engine("mysql+pymysql://", creator=getconn,
-    pool_pre_ping=True,    # Checks if connection is alive before using it
-    pool_recycle=1800      # Refreshes connections every 30 mins to prevent "stale" connections
+pool = sqlalchemy.create_engine(
+    "mysql+pymysql://", 
+    creator=getconn,
+    pool_pre_ping=True,    # Fixes 'Remote end closed connection' errors
+    pool_recycle=1800      # Refreshes connections every 30 mins
 )
 
 # --- 3. UI CONFIGURATION ---
@@ -74,7 +76,7 @@ if uploaded_file:
     # --- SQL UPLOAD ---
     status_text.text("💾 Inserting into Cloud SQL...")
     start_sql = time.time()
-    sql_success = False # Track if SQL actually worked
+    sql_success = False 
     
     try:
         with pool.connect() as conn:
@@ -97,100 +99,168 @@ if uploaded_file:
     
     if sql_success:
         col_b.metric("SQL Upload", f"{end_sql:.4f}s")
-        # Only divide if SQL succeeded to avoid ZeroDivisionError
         if end_gcs < end_sql:
             diff = (end_sql / end_gcs)
             col_c.metric("Winner", "GCS", delta=f"{diff:.1f}x Faster")
         else:
             diff = (end_gcs / end_sql)
             col_c.metric("Winner", "SQL", delta=f"{diff:.1f}x Faster")
+            
+        # --- BAR CHART ---
+        st.subheader("📊 Latency Comparison (Upload)")
+        chart_data = pd.DataFrame({
+            "Service": ["GCS", "SQL"],
+            "Time (Seconds)": [end_gcs, end_sql]
+        })
+        st.bar_chart(chart_data, x="Service", y="Time (Seconds)")
     else:
         col_b.metric("SQL Upload", "FAILED")
         col_c.metric("Winner", "GCS", delta="SQL crashed")
 
-    # --- BAR CHART ---
-    st.subheader("📊 Latency Comparison (Upload)")
-    chart_data = pd.DataFrame({
-        "Service": ["GCS", "SQL"],
-        "Time (Seconds)": [end_gcs, end_sql]
-    })
-    st.bar_chart(chart_data, x="Service", y="Time (Seconds)")
-
-# --- 5. CLOUD DATA EXPLORER ---
+# --- 5. DATA MANAGEMENT & EXPLORER ---
 st.divider()
-st.header("📂 Cloud Data Explorer")
-st.subheader("Compare Retrieval (Download) Speeds")
+tab_benchmark, tab_search, tab_preview = st.tabs(["🚀 Benchmark Retrieval", "🔍 Search Files", "📋 Database Preview"])
 
-try:
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(bucket_name_input)
-    gcs_files = [blob.name for blob in bucket.list_blobs()]
+with tab_benchmark:
+    st.header("📂 Retrieval Comparison")
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name_input)
+        gcs_files = [blob.name for blob in bucket.list_blobs()]
 
-    with pool.connect() as conn:
-        result = conn.execute(sqlalchemy.text("SELECT name FROM file_benchmarks"))
-        sql_files = [row[0] for row in result.fetchall()]
+        with pool.connect() as conn:
+            result = conn.execute(sqlalchemy.text("SELECT name FROM file_benchmarks"))
+            sql_files = [row[0] for row in result.fetchall()]
 
-    available_files = list(set(gcs_files + sql_files))
+        available_files = list(set(gcs_files + sql_files))
 
-    if available_files:
-        selected_file = st.selectbox("Choose a file to retrieve:", available_files)
-        
-        if st.button("🚀 Run Download Benchmark"):
-            # Progress for download
-            dl_status = st.empty()
-            dl_status.text("⏳ Retrieving from both services...")
+        if available_files:
+            selected_file = st.selectbox("Choose a file to retrieve:", available_files)
             
-            dl_col1, dl_col2 = st.columns(2)
-
-            # GCS Download
-            with dl_col1:
-                start_dl_gcs = time.time()
-                blob = bucket.blob(selected_file)
-                gcs_data = blob.download_as_bytes()
-                end_dl_gcs = time.time() - start_dl_gcs
-                st.metric("GCS Retrieval", f"{end_dl_gcs:.4f}s")
-                st.download_button("Save from GCS", data=gcs_data, file_name=f"gcs_{selected_file}")
-
-            # SQL Download
-            with dl_col2:
-                start_dl_sql = time.time()
-                with pool.connect() as conn:
-                    row = conn.execute(
-                        sqlalchemy.text("SELECT data FROM file_benchmarks WHERE name = :name LIMIT 1"),
-                        {"name": selected_file}
-                    ).fetchone()
-                    sql_data = row[0] if row else None
-                end_dl_sql = time.time() - start_dl_sql
+            if st.button("🚀 Run Download Benchmark"):
+                dl_status = st.empty()
+                dl_status.text("⏳ Retrieving from both services...")
                 
-                if sql_data:
-                    st.metric("SQL Retrieval", f"{end_dl_sql:.4f}s")
-                    st.download_button("Save from SQL", data=sql_data, file_name=f"sql_{selected_file}")
+                dl_col1, dl_col2 = st.columns(2)
+
+                # GCS Download
+                with dl_col1:
+                    start_dl_gcs = time.time()
+                    blob = bucket.blob(selected_file)
+                    gcs_data = blob.download_as_bytes()
+                    end_dl_gcs = time.time() - start_dl_gcs
+                    st.metric("GCS Retrieval", f"{end_dl_gcs:.4f}s")
+                    st.download_button("Save from GCS", data=gcs_data, file_name=f"gcs_{selected_file}")
+
+                # SQL Download
+                with dl_col2:
+                    start_dl_sql = time.time()
+                    with pool.connect() as conn:
+                        row = conn.execute(
+                            sqlalchemy.text("SELECT data FROM file_benchmarks WHERE name = :name LIMIT 1"),
+                            {"name": selected_file}
+                        ).fetchone()
+                        sql_data = row[0] if row else None
+                    end_dl_sql = time.time() - start_dl_sql
+                    
+                    if sql_data:
+                        st.metric("SQL Retrieval", f"{end_dl_sql:.4f}s")
+                        st.download_button("Save from SQL", data=sql_data, file_name=f"sql_{selected_file}")
+                    else:
+                        st.warning("File not found in SQL database.")
+
+                dl_status.empty()
+
+                st.divider()
+                if end_dl_gcs < end_dl_sql:
+                    speed_diff = end_dl_sql / end_dl_gcs
+                    st.success(f"🏆 **Benchmark Result:** GCS was **{speed_diff:.1f}x faster** than Cloud SQL.")
+                    st.balloons()
                 else:
-                    st.warning("File not found in SQL database.")
+                    speed_diff = end_dl_gcs / end_dl_sql
+                    st.success(f"🏆 **Benchmark Result:** Cloud SQL was **{speed_diff:.1f}x faster** than GCS.")
+                    st.snow()
+                    
+                st.subheader("📊 Latency Comparison (Retrieval)")
+                dl_chart_data = pd.DataFrame({
+                    "Service": ["GCS", "SQL"],
+                    "Time (Seconds)": [end_dl_gcs, end_dl_sql]
+                })
+                st.bar_chart(dl_chart_data, x="Service", y="Time (Seconds)")
+        else:
+            st.info("No files found. Please upload a file above first.")
+    except Exception as e:
+        st.error(f"Explorer Error: {e}")
 
-            dl_status.empty() # Clear the "Retrieving" status
-
-            # --- DYNAMIC SPEED COMPARISON ---
-            st.divider()
-            if end_dl_gcs < end_dl_sql:
-                speed_diff = end_dl_sql / end_dl_gcs
-                st.success(f"🏆 **Benchmark Result:** GCS was **{speed_diff:.1f}x faster** than Cloud SQL at retrieval.")
-                st.balloons()
-            else:
-                speed_diff = end_dl_gcs / end_dl_sql
-                st.success(f"🏆 **Benchmark Result:** Cloud SQL was **{speed_diff:.1f}x faster** than GCS at retrieval.")
-                st.snow()
+with tab_search:
+    st.subheader("🔍 Metadata Search")
+    search_query = st.text_input("Enter filename to search in SQL database...")
+    
+    if search_query:
+        try:
+            with pool.connect() as conn:
+                query = sqlalchemy.text("SELECT id, name FROM file_benchmarks WHERE name LIKE :name")
+                search_results = conn.execute(query, {"name": f"%{search_query}%"}).fetchall()
                 
-            # --- DOWNLOAD BAR CHART ---
-            st.subheader("📊 Latency Comparison (Retrieval)")
-            dl_chart_data = pd.DataFrame({
-                "Service": ["GCS", "SQL"],
-                "Time (Seconds)": [end_dl_gcs, end_dl_sql]
-            })
-            st.bar_chart(dl_chart_data, x="Service", y="Time (Seconds)")
+                if search_results:
+                    st.write(f"Found {len(search_results)} result(s):")
+                    st.dataframe(pd.DataFrame(search_results, columns=["ID", "Filename"]), use_container_width=True)
+                else:
+                    st.warning("No matches found in the SQL database.")
+        except Exception as e:
+            st.error(f"Search Error: {e}")
 
-    else:
-        st.info("No files found. Please upload a file above first.")
+with tab_preview:
+    st.subheader("📋 SQL Table Statistics & Management")
+    
+    # 1. Fetch data for the table and the selection dropdown
+    try:
+        with pool.connect() as conn:
+            query = sqlalchemy.text("SELECT id, name, LENGTH(data) as size_bytes FROM file_benchmarks")
+            all_data = conn.execute(query).fetchall()
+            
+            if all_data:
+                df = pd.DataFrame(all_data, columns=["ID", "Filename", "Size_Bytes"])
+                df["Size (MB)"] = (df["Size_Bytes"] / (1024 * 1024)).round(4)
+                
+                # Display the current table
+                st.table(df[["ID", "Filename", "Size (MB)"]])
+                
+                st.divider()
+                st.subheader("🗑️ Delete Data")
+                col_del1, col_del2 = st.columns([2, 1])
+                target_file = col_del1.selectbox("Select a file to remove:", df["Filename"].tolist())
+                # 2. UI for Deletion
+                col_del1, col_del2 = st.columns([2, 1])
+                file_to_delete = col_del1.selectbox("Select a file to remove from Cloud:", df["Filename"].tolist(), key="del_select")
+                
+                if col_del2.button("⚠️ Delete Permanently", type="primary"):
+                    # A. Delete from Cloud SQL
+                    with pool.connect() as conn:
+                        conn.execute(
+                            sqlalchemy.text("DELETE FROM file_benchmarks WHERE name = :name"),
+                            {"name": target_file}
+                        )
+                        conn.commit()
+                    
+                    # B. Delete from GCS
+                    try:
+                        storage_client = storage.Client()
+                        bucket = storage_client.bucket(bucket_name_input)
+                        blob = bucket.blob(target_file)
+                        blob.delete()
+                        gcs_msg = "and GCS Bucket"
+                    except Exception as gcs_err:
+                        gcs_msg = "(GCS file already gone or error)"
 
-except Exception as e:
-    st.error(f"Error fetching cloud data: {e}")
+                    st.success(f"Successfully deleted '{target_file}' from SQL {gcs_msg}!")
+                    time.sleep(1) # Short pause so the user sees the success
+                    st.rerun() # Refresh the page to update the table
+                    
+            else:
+                st.info("The SQL database is currently empty.")
+                if st.button("🔄 Refresh View"):
+                    st.rerun()
+
+    except Exception as e:
+        st.error(f"Management Error: {e}")
