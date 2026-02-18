@@ -5,8 +5,9 @@ WORKDIR /app
 # Copy all files (including the requirements.txt)
 COPY . .
 
-# Install libraries
-RUN pip install --no-cache-dir -r requirements.txt
+# Install libraries (upgrade installer tools first so modern wheels are recognized)
+RUN pip install --upgrade pip setuptools wheel && \
+	pip install --no-cache-dir -r requirements.txt
 
 # Streamlit-specific config
 EXPOSE 8080
