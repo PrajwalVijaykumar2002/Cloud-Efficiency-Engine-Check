@@ -1,6 +1,0 @@
-streamlit
-pandas
-google-cloud-storage
-google-cloud-sql-connector[pymysql]
-sqlalchemy
-PyMySQL
