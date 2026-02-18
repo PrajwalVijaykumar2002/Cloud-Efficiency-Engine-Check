@@ -31,19 +31,17 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker --quiet
 
-      # 5a. Build the Docker image
-      - name: Build Docker Image
-        run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/streamlit-benchmark:latest .
+      # 5. Build and Push (Simplified)
+      - name: Build and Push
+        run: |
+          docker build -t gcr.io/cloud-storage-vs-sql-groupc/streamlit-benchmark:latest .
+          docker push gcr.io/cloud-storage-vs-sql-groupc/streamlit-benchmark:latest
 
-      # 5b. Push the Docker image
-      - name: Push Docker Image
-        run: docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/streamlit-benchmark:latest
-        
       # 6. Deploy to Google Cloud Run
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy streamlit-benchmark \
-            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/streamlit-benchmark:latest \
+            --image gcr.io/cloud-storage-vs-sql-groupc/streamlit-benchmark:latest \
             --region europe-west9 \
             --platform managed \
             --allow-unauthenticated \
